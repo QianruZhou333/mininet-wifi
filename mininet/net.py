@@ -115,8 +115,11 @@ from mininet.util import (quietRun, fixLimits, numCores, ensureRoot,
                            waitListening)
 from mininet.term import cleanUpScreens, makeTerms
 from mininet.wifiNet import mininetWiFi
-
 from __builtin__ import True
+
+from neo4j.v1 import GraphDatabase, basic_auth
+from rdflib import Graph, plugin, Namespace, Literal
+from rdflib.namespace import RDF
 
 # Mininet version: should be consistent with README and LICENSE
 VERSION = "2.1r1"
@@ -187,7 +190,14 @@ class Mininet(object):
         self.terms = []  # list of spawned xterm processes
         self.useWmediumd = enable_wmediumd
         self.disableAutoAssociation = disableAutoAssociation
-
+        # semantic modeling initiation
+        self.n = Namespace('http://home.eps.hw.ac.uk/~qz1/') # namespace of the semantic RDF graph
+        self.g = Graph()
+        self.file_abs = '../knowledgeBase/knowledgeBase.ttl'
+        # graph database initiation
+        self.driver = GraphDatabase.driver("bolt://localhost", auth=basic_auth("neo4j", "neo4j"))
+        self.session = self.driver.session()
+        
         mininetWiFi.isWiFi = isWiFi
         mininetWiFi.enable_interference = enable_interference
         mininetWiFi.rec_rssi = rec_rssi
@@ -196,7 +206,62 @@ class Mininet(object):
         self.built = False
         if topo and build:
             self.build()
+            
+    def clearSemanticKB(self):
+        with open(self.file_abs, 'w') as f:
+            f.write('')
+    # QZ: get semantic knowledge base here
+    def getSemanticKB(self):
+        self.clearSemanticKB()
+        #self.clearGraphDB()
+        self.session.run("MATCH (n) DETACH DELETE n")
 
+        for controller in self.controllers:
+            self.g.add( ( self.n[str(controller.name)], RDF.type, self.n['Controller'] ) )
+
+        sCount = 0
+        for switch in self.switches:
+            self.g.add( ( self.n[str(switch.name)], RDF.type, self.n['Switch'] ) )
+            for port in switch.intfList():
+                self.g.add(( self.n[str(switch.name)], self.n.hasPort, self.n[str(port.name)] ))
+                self.g.add(( self.n[str(port.name)], self.n.isIn, self.n[str(switch.name)] ))
+                self.g.add(( self.n[str(port.name)], RDF.type, self.n['Port'] ))
+                self.g.add(( self.n[str(port.name)], self.n.hasIP, Literal(str(port.ip)) ))
+                self.g.add(( self.n[str(port.name)], self.n.hasMAC, Literal(str(port.mac)) ))
+
+            self.session.run("CREATE ("+ str(switch.name) +":Node {name:'"+ str(switch.name) +"', isSwitch:1 })")
+
+        for host in self.hosts:
+            self.g.add( ( self.n[str(host.name)], RDF.type, self.n['Host'] ) )
+            for intf in host.intfList():
+                self.g.add( ( self.n[str(intf.name)], RDF.type, self.n['Port'] ) )
+                self.g.add( ( self.n[str(host.name)], self.n.hasPort, self.n[str(intf.name)] ) )
+                self.g.add( ( self.n[str(intf.name)], self.n.isIn, self.n[str(host.name)] ) )
+                self.g.add( ( self.n[str(intf)], self.n.hasIP, Literal(str(intf.ip)) ) )    
+                self.g.add( ( self.n[str(intf)], self.n.hasMAC, Literal(str(intf.mac)) ) )
+            self.session.run("CREATE ("+ str(host.name) +":Node {name:'"+ str(host.name) +"', isSwitch:0 })")
+
+        link_count = 0
+        for link in self.links:
+            linkString = str(link)
+            node1 = str(linkString[0:linkString.index('-')])
+            node2 = str(linkString[(linkString.index('>')+1):linkString.rindex('-')])
+            self.g.add( ( self.n['Link'+str(link_count)], RDF.type, self.n['Link'] ) )
+            self.g.add( ( self.n['Link'+str(link_count)], self.n.linkTo, self.n[str(linkString[0:linkString.index('<')])] ) )
+            self.g.add( ( self.n['Link'+str(link_count)], self.n.linkTo, self.n[str(linkString[linkString.index('>')+1:len(linkString)])] ) )
+            self.g.add( ( self.n['Link'+str(link_count)], self.n.hasStatus, Literal(str(link.status())) ) )
+            link_count += 1
+            self.session.run(" MATCH (n1:Node {name:'"+ str(node1) +"'}), (n2:Node {name:'"+ str(node2) +"'}) CREATE (n1)-[:CONNECT]->(n2)" )
+        # write Semantic KB
+        with open(self.file_abs, 'a') as f:
+            f.write(self.g.serialize(format = 'turtle'))
+        # dump the graph DB 
+        result = self.session.run("MATCH (n) RETURN n.name AS name, ID(n) AS id, n")
+        for r in result:
+            print r["name"], r["id"], r["n"]
+        self.session.close()
+        return self.g
+    
     def waitConnected(self, timeout=None, delay=.5):
         """wait for each switch to connect to a controller,
            up to 5 seconds
