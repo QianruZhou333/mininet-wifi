@@ -210,7 +210,7 @@ class Mininet(object):
     def clearSemanticKB(self):
         with open(self.file_abs, 'w') as f:
             f.write('')
-    # QZ: get semantic knowledge base here
+    # Qianru Zhou: get semantic knowledge base here
     def getSemanticKB(self):
         self.clearSemanticKB()
         #self.clearGraphDB()
@@ -221,7 +221,43 @@ class Mininet(object):
 
         sCount = 0
         for switch in self.switches:
-            self.g.add( ( self.n[str(switch.name)], RDF.type, self.n['Switch'] ) )
+            ''' if access point '''
+            if 'ap' in str(switch.name):
+                self.g.add( ( self.n[str(switch.name)], RDF.type, self.n['AccessPoint'] ) )
+                print 'get a ap'
+                print switch.params['position'][0]
+                print switch.params['speed']
+                print switch.params['frequency']
+                print switch.params['txpower']
+
+                if switch.params['position']:
+                    location = str(switch.name) + '_location'
+                    print location
+                    self.g.add( ( self.n[str(switch.name)], self.geo.location, self.geo[location] ) )
+                    self.g.add( ( self.geo[location], self.geo.lat, Literal(str(switch.params['position'][0]), datatype=XSD.float) ) )
+                    self.g.add( ( self.geo[location], self.geo.long, Literal(str(switch.params['position'][1]), datatype=XSD.float) ) )
+                    self.g.add( ( self.geo[location], self.geo.alt, Literal(str(switch.params['position'][2]), datatype=XSD.float) ) )
+
+                if switch.params['speed']:
+                    print 'get the speed of ap' + str(switch.params['speed'])
+                    self.g.add( ( self.n[str(switch.name)], self.n.speed, Literal(switch.params['speed'], datatype=XSD.float) ) )
+
+                if switch.params['frequency']:
+                    self.g.add( ( self.n[str(switch.name)], self.n.frequency, Literal(switch.params['frequency'][0], datatype=XSD.float) ) )
+                    
+                if switch.params['txpower']:
+                    print 'get the txpower of ap' + str(switch.params['txpower'])
+                    self.g.add( ( self.n[str(switch.name)], self.n.hasTxPower, Literal(switch.params['txpower'][0], datatype=XSD.float) ) )
+
+                if switch.params['channel']:
+                    self.g.add( ( self.n[str(switch.name)], self.n.channel, Literal(switch.params['channel'][0], datatype=XSD.int) ) )
+
+                if switch.params['mode']:
+                    self.g.add( ( self.n[str(switch.name)], self.n.mode, Literal(switch.params['mode'][0], datatype=XSD.string) ) )
+
+            # if normal switch
+            else:
+                self.g.add( ( self.n[str(switch.name)], RDF.type, self.n['Switch'] ) )
             for port in switch.intfList():
                 self.g.add(( self.n[str(switch.name)], self.n.hasPort, self.n[str(port.name)] ))
                 self.g.add(( self.n[str(port.name)], self.n.isIn, self.n[str(switch.name)] ))
@@ -230,17 +266,48 @@ class Mininet(object):
                 self.g.add(( self.n[str(port.name)], self.n.hasMAC, Literal(str(port.mac)) ))
 
             self.session.run("CREATE ("+ str(switch.name) +":Node {name:'"+ str(switch.name) +"', isSwitch:1 })")
-
+                    
+                    
         for host in self.hosts:
-            self.g.add( ( self.n[str(host.name)], RDF.type, self.n['Host'] ) )
+            if 'sta' in str(host.name):
+                self.g.add( ( self.n[str(host.name)], RDF.type, self.n['MobileStation'] ) )
+                print 'get a station'
+
+                if host.params['position']:
+                    location = str(host.name) + '_location'
+                    self.g.add( ( self.n[str(host.name)], self.geo.location, self.geo[location] ) )
+                    self.g.add( ( self.geo[location], self.geo.lat, Literal(str(host.params['position'][0]), datatype=XSD.float) ) )
+                    self.g.add( ( self.geo[location], self.geo.long, Literal(str(host.params['position'][1]), datatype=XSD.float) ) )
+                    self.g.add( ( self.geo[location], self.geo.alt, Literal(str(host.params['position'][2]), datatype=XSD.float) ) )
+
+                if host.params['speed']:
+                    self.g.add( ( self.n[str(host.name)], self.n.speed, Literal(host.params['speed'], datatype=XSD.float) ) )
+
+                if host.params['frequency']:
+                    self.g.add( ( self.n[str(host.name)], self.n.frequency, Literal(host.params['frequency'][0], datatype=XSD.float) ) )
+
+                if host.params['rssi']:
+                    self.g.add( ( self.n[str(host.name)], self.n.hasRSSI, Literal(str(host.params['rssi'][0]), datatype=XSD.float) ) )
+
+                if host.params['txpower']:
+                    self.g.add( ( self.n[str(host.name)], self.n.hasTxPower, Literal(host.params['txpower'][0], datatype=XSD.float) ) )
+
+                if host.params['channel']:
+                    self.g.add( ( self.n[str(host.name)], self.n.channel, Literal(host.params['channel'][0], datatype=XSD.int) ) )
+                    
+                if host.params['mode']:
+                    self.g.add( ( self.n[str(host.name)], self.n.mode, Literal(switch.params['mode'][0], datatype=XSD.string) ) )
+
+            else:
+                self.g.add( ( self.n[str(host.name)], RDF.type, self.n['Host'] ) )
             for intf in host.intfList():
                 self.g.add( ( self.n[str(intf.name)], RDF.type, self.n['Port'] ) )
                 self.g.add( ( self.n[str(host.name)], self.n.hasPort, self.n[str(intf.name)] ) )
                 self.g.add( ( self.n[str(intf.name)], self.n.isIn, self.n[str(host.name)] ) )
-                self.g.add( ( self.n[str(intf)], self.n.hasIP, Literal(str(intf.ip)) ) )    
+                self.g.add( ( self.n[str(intf)], self.n.hasIP, Literal(str(intf.ip)) ) )
                 self.g.add( ( self.n[str(intf)], self.n.hasMAC, Literal(str(intf.mac)) ) )
-            self.session.run("CREATE ("+ str(host.name) +":Node {name:'"+ str(host.name) +"', isSwitch:0 })")
-
+            self.session.run("CREATE ("+ str(host.name) +":Node {name:'"+ str(host.name) +"', isSwitch:0 })")            
+            
         link_count = 0
         for link in self.links:
             linkString = str(link)
@@ -252,13 +319,16 @@ class Mininet(object):
             self.g.add( ( self.n['Link'+str(link_count)], self.n.hasStatus, Literal(str(link.status())) ) )
             link_count += 1
             self.session.run(" MATCH (n1:Node {name:'"+ str(node1) +"'}), (n2:Node {name:'"+ str(node2) +"'}) CREATE (n1)-[:CONNECT]->(n2)" )
+            
         # write Semantic KB
         with open(self.file_abs, 'a') as f:
             f.write(self.g.serialize(format = 'turtle'))
+            
         # dump the graph DB 
         result = self.session.run("MATCH (n) RETURN n.name AS name, ID(n) AS id, n")
         for r in result:
             print r["name"], r["id"], r["n"]
+            
         self.session.close()
         return self.g
     
